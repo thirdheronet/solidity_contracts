@@ -22,9 +22,10 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
 
         bytes8 section;
         address owner;
+        bool equipped;
 
         string metadata;
-        string saciPath; // server/account/character/invetory IDs
+        string saciPath; // server/account/character/invetory/equp IDs
     }
 
     mapping(uint256 => Item) private items;
@@ -37,8 +38,7 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
 
     event PlayerNewTokenMined(uint256 tokenId, address owner, string metadata, string saciPath);
     event PlayerTokenSold(uint256 tokenId, address oldOwner, address newOwner, string metadata);
-    event PlayerTokenWrapped(uint256 tokenId);
-    event PlayerTokenUnwrapped(uint256 tokenId, string saciPath);
+    event PlayerTokenEquipped(uint256 tokenId, string saciPath, bool equipped);
 
     constructor(IERC20 _paymentToken) ERC1155("ipfs://") EIP712("ThirdHero", "1") Ownable(msg.sender) {
         // 0x27beC33e82eB9d95367C87842AE306F8dd3aF7bb
@@ -48,11 +48,18 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
         addSection(LIST_SECTION_ITEMS);
     }
 
+    /*function testMint() public onlyOwner {
+        serverMint(0x887F0fed464232697bC6FCCD272C9d1dD4dD36d1, LIST_SECTION_CARDS, "ipfs://QmXFFfJQKTmQypDTdn9YYMMLMzu1Wa2m4ABtTRDRtW5xjz", "", 1);
+        serverMint(0x887F0fed464232697bC6FCCD272C9d1dD4dD36d1, LIST_SECTION_CARDS, "ipfs://QmfBN6gq2RQz4BWxtNH8Yctqu49tGkPTACa6biKdysoxjo", "", 2);
+        serverMint(0x887F0fed464232697bC6FCCD272C9d1dD4dD36d1, LIST_SECTION_CARDS, "ipfs://QmZMUHf77gyYdLQMt5NVw7RE7VW3QkXTrDwuEhL2sYavPa", "", 3);
+    }*/
+
     function _addItem(
         uint256 tokenId, 
         bytes8 section, 
         string memory metadata, 
         string memory saciPath,
+        bool equipped,
         address owner
         ) private {        
             items[tokenId] = Item({
@@ -61,7 +68,8 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
                 metadata: metadata,
                 section: section,
                 owner: owner,
-                saciPath: saciPath
+                saciPath: saciPath,
+                equipped: equipped
             });
 
             itemIds.push(tokenId); 
@@ -72,6 +80,7 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
         bytes8 section, 
         string memory metadata, 
         string memory saciPath,
+        bool equipped,
         uint256 id
         ) private {    
             require(!(id == 0), "Token ID can't be 0!"); 
@@ -87,7 +96,7 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
 
             require(sectionFound, "Section doesn't exist.");
 
-            _addItem(id, section, metadata, saciPath, to);
+            _addItem(id, section, metadata, saciPath, equipped, to);
             _mint(to, id, 1, "");
     }
 
@@ -98,7 +107,7 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
         string memory saciPath, 
         uint256 id
         ) public onlyOwner {
-            mint(to, section, metadata, saciPath, id);
+            mint(to, section, metadata, saciPath, true, id);
     }
 
     function playerMint(
@@ -126,7 +135,7 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
    
         require(signer == owner(), "Invalid signature");
 
-        mint(to, section, metadata, saciPath, id);
+        mint(to, section, metadata, saciPath, true, id);
 
         emit PlayerNewTokenMined(id, to, metadata, saciPath);
     }
@@ -190,7 +199,10 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
             paymentToken.transferFrom(msg.sender, items[tokenId].owner, salePrice);
             _safeTransferFrom(items[tokenId].owner, msg.sender, tokenId, 1, "");
             manageOfferSale(tokenId, 0);
+
             items[tokenId].owner = msg.sender;
+            items[tokenId].saciPath = "";
+            items[tokenId].equipped = false;
 
             emit PlayerTokenSold(
                 tokenId, 
@@ -200,24 +212,22 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
             );
     }
 
-    function wrapToken(uint256 tokenId) public
+    function equip(uint256 tokenId, string memory saciPath, bool _equip) public
     {
         require(items[tokenId].owner == msg.sender, "You are not owner of the token!");
 
-        items[tokenId].saciPath = "";
-        emit PlayerTokenWrapped(tokenId);
-    }
-
-    function unwrapToken(uint256 tokenId, string memory saciPath) public
-    {
-        require(items[tokenId].owner == msg.sender, "You are not owner of the token!");
-
+        items[tokenId].equipped = _equip;
         items[tokenId].saciPath = saciPath;
-        emit PlayerTokenUnwrapped(tokenId, saciPath);
+
+        emit PlayerTokenEquipped(tokenId, saciPath, _equip);
     }
 
     function setPaymentToken(IERC20 token) public onlyOwner {
         paymentToken = token;
+    }
+
+    function getPaymentToken() public view returns (IERC20) {
+        return paymentToken;
     }
 
     function uri(uint256 tokenId) public view override returns (string memory) {  
