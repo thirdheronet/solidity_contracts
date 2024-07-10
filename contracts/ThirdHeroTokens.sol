@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// https://www.thirdhero.net
 
 pragma solidity ^0.8.20;
 
@@ -7,59 +8,37 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/draft-IERC20Permit.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
+import "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "./IThirdHeroTokens.sol";
 
-contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
-    bytes8 constant LIST_SECTION_ITEMS = "items";
-    bytes8 constant LIST_SECTION_CARDS = "cards";
+contract ThirdHeroTokens is ERC1155, EIP712, Ownable, IERC721Errors, IERC20Errors, IThirdHeroTokens {
+    bytes8 constant private LIST_SECTION_ITEMS = "items";
+    bytes8 constant private LIST_SECTION_CARDS = "cards";
+
+    bytes32 constant private PLAYER_MINT_TYPEHASH =
+        keccak256("PlayerMint(address to,bytes8 section,string metadata,string saciPath,uint256 id)");
 
     IERC20 private paymentToken;
-
-    struct Item {
-        uint256 id;
-        uint256 salePrice;
-
-        bytes8 section;
-        address owner;
-        bool equipped;
-
-        string metadata;
-        string saciPath; // server/account/character/invetory/equp IDs
-    }
 
     mapping(uint256 => Item) private items;
 
     bytes8[] private sectionNames; 
     uint256[] private itemIds;
 
-    bytes32 private constant PLAYER_MINT_TYPEHASH =
-        keccak256("PlayerMint(address to,bytes8 section,string metadata,string saciPath,uint256 id)");
-
-    event PlayerNewTokenMined(uint256 tokenId, address owner, string metadata, string saciPath);
-    event PlayerTokenSold(uint256 tokenId, address oldOwner, address newOwner, string metadata);
-    event PlayerTokenEquipped(uint256 tokenId, string saciPath, bool equipped);
-
     constructor(IERC20 _paymentToken) ERC1155("ipfs://") EIP712("ThirdHero", "1") Ownable(msg.sender) {
-        // 0x27beC33e82eB9d95367C87842AE306F8dd3aF7bb
         setPaymentToken(_paymentToken);
 
         addSection(LIST_SECTION_CARDS);
         addSection(LIST_SECTION_ITEMS);
     }
 
-    /*function testMint() public onlyOwner {
-        serverMint(0x887F0fed464232697bC6FCCD272C9d1dD4dD36d1, LIST_SECTION_CARDS, "ipfs://QmXFFfJQKTmQypDTdn9YYMMLMzu1Wa2m4ABtTRDRtW5xjz", "", 1);
-        serverMint(0x887F0fed464232697bC6FCCD272C9d1dD4dD36d1, LIST_SECTION_CARDS, "ipfs://QmfBN6gq2RQz4BWxtNH8Yctqu49tGkPTACa6biKdysoxjo", "", 2);
-        serverMint(0x887F0fed464232697bC6FCCD272C9d1dD4dD36d1, LIST_SECTION_CARDS, "ipfs://QmZMUHf77gyYdLQMt5NVw7RE7VW3QkXTrDwuEhL2sYavPa", "", 3);
-    }*/
-
     function _addItem(
         uint256 tokenId, 
         bytes8 section, 
         string memory metadata, 
         string memory saciPath,
-        bool equipped,
         address owner
         ) private {        
             items[tokenId] = Item({
@@ -68,11 +47,19 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
                 metadata: metadata,
                 section: section,
                 owner: owner,
-                saciPath: saciPath,
-                equipped: equipped
+                saciPath: saciPath
             });
 
             itemIds.push(tokenId); 
+    }
+
+    function fixItem(uint256 tokenId, string memory metaData, bytes8 section) public onlyOwner {
+        if(items[tokenId].owner != msg.sender) {
+            revert NotTokenOwner(tokenId, items[tokenId].owner);
+        }
+
+        items[tokenId].metadata = metaData;
+        items[tokenId].section = section;
     }
 
     function mint(
@@ -80,11 +67,15 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
         bytes8 section, 
         string memory metadata, 
         string memory saciPath,
-        bool equipped,
         uint256 id
         ) private {    
-            require(!(id == 0), "Token ID can't be 0!"); 
-            require(!(items[id].id > 0), "Token has already been mined!");
+            if(id == 0) {
+                revert ZeroTokenId();
+            }
+
+            if(items[id].id > 0) {
+                revert TokenAlreadyMined(id);
+            }
  
             bool sectionFound;
 
@@ -94,9 +85,11 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
                 }
             }
 
-            require(sectionFound, "Section doesn't exist.");
+            if(!sectionFound) {
+                revert SectionDoesntExist(section);
+            }
 
-            _addItem(id, section, metadata, saciPath, equipped, to);
+            _addItem(id, section, metadata, saciPath, to);
             _mint(to, id, 1, "");
     }
 
@@ -107,7 +100,11 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
         string memory saciPath, 
         uint256 id
         ) public onlyOwner {
-            mint(to, section, metadata, saciPath, true, id);
+            if(to == address(0)) {
+                revert ERC1155InvalidReceiver(address(0));
+            }
+
+            mint(to, section, metadata, saciPath, id);
     }
 
     function playerMint(
@@ -120,6 +117,10 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
         bytes32 r,
         bytes32 s
     ) public {
+        if(to == address(0)) {
+            revert ERC1155InvalidReceiver(to);
+        }
+
         bytes32 structHash = keccak256(
             abi.encode(
                 PLAYER_MINT_TYPEHASH, 
@@ -130,14 +131,27 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
                 id
             )
         );
+        
         bytes32 hash = _hashTypedDataV4(structHash);
         address signer = ECDSA.recover(hash, v, r, s);
    
-        require(signer == owner(), "Invalid signature");
+        if(signer != owner()) {
+           revert InvalidSignature();
+        }
 
-        mint(to, section, metadata, saciPath, true, id);
+        mint(to, section, metadata, saciPath, id);
 
         emit PlayerNewTokenMined(id, to, metadata, saciPath);
+    }
+
+    function burn(uint256 id) public {
+        if(items[id].owner != msg.sender) {
+            revert NotTokenOwner(id, items[id].owner);
+        }
+
+        _burn(items[id].owner, id, 1);
+
+        emit PlayerTokenBurned(id, items[id].owner, items[id].metadata);
     }
 
     function addSection(bytes8 name) public onlyOwner {
@@ -149,7 +163,9 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
             }
         }
 
-        require(!sectionFound, "Section already exists.");
+        if(sectionFound) {
+            revert SectionAlreadyExists(name);
+        }
 
         sectionNames.push(name);
     }
@@ -163,7 +179,9 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
     }
 
     function manageOfferSale(uint256 tokenId, uint256 salePrice) public {
-        require(balanceOf(msg.sender, tokenId) != 0, "You don't own this token!");
+        if(balanceOf(msg.sender, tokenId) == 0) {
+            revert ERC721IncorrectOwner(msg.sender, tokenId, items[tokenId].owner);
+        }
 
         items[tokenId].salePrice = salePrice;
         setApprovalForAll(address(this), salePrice != 0);
@@ -178,9 +196,14 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
         ) public {
             uint256 salePrice = items[tokenId].salePrice;
 
-            require(salePrice != 0, "Not for sale!");
-            require(balanceOf(items[tokenId].owner, tokenId) > 0, "Wrong seller!");
+            if(salePrice == 0) {
+                revert TokenNotForSale(tokenId);
+            }
 
+            if(balanceOf(items[tokenId].owner, tokenId) == 0) {
+                revert PoorTokenSeller();
+            }
+            
             IERC20Permit(address(paymentToken)).permit(
                 msg.sender,
                 address(this),
@@ -191,8 +214,15 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
                 s
             );
 
-            require(paymentToken.allowance(msg.sender, items[tokenId].owner) >= salePrice, "Token allowance too low!");
-            require(isApprovedForAll(items[tokenId].owner, address(this)), "Not approved manage the token!");
+            uint256 allowance = paymentToken.allowance(msg.sender, items[tokenId].owner);
+
+            if(allowance < salePrice) {
+                revert ERC20InsufficientAllowance(msg.sender, allowance, salePrice);
+            }
+
+            if(!isApprovedForAll(items[tokenId].owner, address(this))) {
+                revert ERC20InvalidApprover(items[tokenId].owner);
+            }
          
             address oldOwner = items[tokenId].owner;
 
@@ -202,7 +232,6 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
 
             items[tokenId].owner = msg.sender;
             items[tokenId].saciPath = "";
-            items[tokenId].equipped = false;
 
             emit PlayerTokenSold(
                 tokenId, 
@@ -212,14 +241,16 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable {
             );
     }
 
-    function equip(uint256 tokenId, string memory saciPath, bool _equip) public
+    function equip(uint256 tokenId, string memory saciPath) public
     {
-        require(items[tokenId].owner == msg.sender, "You are not owner of the token!");
+        if(items[tokenId].owner != msg.sender) {
+            revert NotTokenOwner(tokenId, items[tokenId].owner);
+        }
 
-        items[tokenId].equipped = _equip;
+        string memory oldSaciPath = items[tokenId].saciPath;
         items[tokenId].saciPath = saciPath;
 
-        emit PlayerTokenEquipped(tokenId, saciPath, _equip);
+        emit PlayerTokenEquipped(tokenId, items[tokenId].owner, saciPath, oldSaciPath);
     }
 
     function setPaymentToken(IERC20 token) public onlyOwner {
