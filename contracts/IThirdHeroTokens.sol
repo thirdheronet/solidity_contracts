@@ -5,7 +5,7 @@ pragma solidity ^0.8.20;
 
 interface IThirdHeroTokens {
     event PlayerNewTokenMined(uint256 tokenId, address owner, string metadata, string saciPath);
-    event PlayerTokenSold(uint256 tokenId, address oldOwner, address newOwner, string metadata);
+    event PlayerTokenSold(uint256 tokenId, address oldOwner, address newOwner, string metadata, string oldSaciPath);
     event PlayerTokenEquipped(uint256 tokenId, address owner, string saciPath, string oldSaciPath);
     event PlayerTokenBurned(uint256 tokenId, address owner, string metadata);
 

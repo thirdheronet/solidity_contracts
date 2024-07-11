@@ -14,10 +14,10 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "./IThirdHeroTokens.sol";
 
 contract ThirdHeroTokens is ERC1155, EIP712, Ownable, IERC721Errors, IERC20Errors, IThirdHeroTokens {
-    bytes8 constant private LIST_SECTION_ITEMS = "items";
-    bytes8 constant private LIST_SECTION_CARDS = "cards";
+    bytes8 constant public LIST_SECTION_ITEMS = "items";
+    bytes8 constant public LIST_SECTION_CARDS = "cards";
 
-    bytes32 constant private PLAYER_MINT_TYPEHASH =
+    bytes32 constant public PLAYER_MINT_TYPEHASH =
         keccak256("PlayerMint(address to,bytes8 section,string metadata,string saciPath,uint256 id)");
 
     IERC20 private paymentToken;
@@ -144,7 +144,7 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable, IERC721Errors, IERC20Error
         emit PlayerNewTokenMined(id, to, metadata, saciPath);
     }
 
-    function burn(uint256 id) public {
+    /*function burn(uint256 id) public {
         if(items[id].owner != msg.sender) {
             revert NotTokenOwner(id, items[id].owner);
         }
@@ -152,7 +152,7 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable, IERC721Errors, IERC20Error
         _burn(items[id].owner, id, 1);
 
         emit PlayerTokenBurned(id, items[id].owner, items[id].metadata);
-    }
+    }*/
 
     function addSection(bytes8 name) public onlyOwner {
         bool sectionFound;
@@ -225,6 +225,7 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable, IERC721Errors, IERC20Error
             }
          
             address oldOwner = items[tokenId].owner;
+            string memory oldSaciPath = items[tokenId].saciPath;
 
             paymentToken.transferFrom(msg.sender, items[tokenId].owner, salePrice);
             _safeTransferFrom(items[tokenId].owner, msg.sender, tokenId, 1, "");
@@ -237,7 +238,8 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable, IERC721Errors, IERC20Error
                 tokenId, 
                 oldOwner, 
                 msg.sender, 
-                items[tokenId].metadata
+                items[tokenId].metadata,
+                oldSaciPath
             );
     }
 
@@ -315,6 +317,10 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable, IERC721Errors, IERC20Error
 
     function getSections() public view returns(bytes8[] memory) {
         return sectionNames;
+    }
+
+    function getSectionsSize() public view returns(uint256) {
+        return sectionNames.length;
     }
 
     function getListSize() public view returns(uint256) {
