@@ -150,7 +150,7 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable, IERC721Errors, IERC20Error
         }
          
         if(items[id].section == LIST_SECTION_CARDS) {
-            revert GeneralError("Tokens from section \"cards\" can't be burned!");
+            revert GeneralError("Tokens from section \"cards\" can\"t be burned!");
         }
 
         string memory oldSaciPath = items[id].saciPath;
@@ -195,7 +195,7 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable, IERC721Errors, IERC20Error
         }
 
         items[tokenId].salePrice = salePrice;
-        setApprovalForAll(address(this), salePrice != 0);
+        setApprovalForAll(address(this), true);
     }
 
     function safeTransferFrom(
@@ -205,6 +205,10 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable, IERC721Errors, IERC20Error
         uint256 value, 
         bytes memory data
         ) public override {
+            if(from == address(this)) {
+                revert GeneralError("ThirdHero contract address can\"t be sender!");
+            }
+
             address sender = _msgSender();
 
             if (from != sender && !isApprovedForAll(from, sender)) {
@@ -230,6 +234,10 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable, IERC721Errors, IERC20Error
         uint256[] memory values,
         bytes memory data
     ) public override {
+            if(from == address(this)) {
+                revert GeneralError("ThirdHero contract address can\"t be sender!");
+            }
+
             address sender = _msgSender();
 
             if (from != sender && !isApprovedForAll(from, sender)) {
