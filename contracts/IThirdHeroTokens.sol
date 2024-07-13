@@ -7,7 +7,8 @@ interface IThirdHeroTokens {
     event PlayerNewTokenMined(uint256 tokenId, address owner, string metadata, string saciPath);
     event PlayerTokenSold(uint256 tokenId, address oldOwner, address newOwner, string metadata, string oldSaciPath);
     event PlayerTokenEquipped(uint256 tokenId, address owner, string saciPath, string oldSaciPath);
-    event PlayerTokenBurned(uint256 tokenId, address owner, string metadata);
+    event PlayerTokenBurned(uint256 tokenId, address oldOwner, string metadata, string oldSaciPath, string exchangeSaciPath);
+    event PlayerNewTokenChanges(uint256 tokenId, address oldOwner, address newOwner, string metadata, string saciPath, string oldSaciPath);
 
     error ZeroTokenId();
     error TokenNotForSale(uint256 id);
@@ -17,7 +18,8 @@ interface IThirdHeroTokens {
     error SectionDoesntExist(bytes8 name);
     error InvalidSignature();
     error PoorTokenSeller();
-    
+    error GeneralError(string message);
+
     struct Item {
         uint256 id;
         uint256 salePrice;

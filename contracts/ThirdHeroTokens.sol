@@ -3,6 +3,7 @@
 
 pragma solidity ^0.8.20;
 
+import "./IThirdHeroTokens.sol";
 import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/draft-IERC20Permit.sol";
@@ -11,13 +12,12 @@ import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import "./IThirdHeroTokens.sol";
 
 contract ThirdHeroTokens is ERC1155, EIP712, Ownable, IERC721Errors, IERC20Errors, IThirdHeroTokens {
-    bytes8 constant public LIST_SECTION_ITEMS = "items";
-    bytes8 constant public LIST_SECTION_CARDS = "cards";
+    bytes8 constant private LIST_SECTION_ITEMS = "items";
+    bytes8 constant private LIST_SECTION_CARDS = "cards";
 
-    bytes32 constant public PLAYER_MINT_TYPEHASH =
+    bytes32 constant private PLAYER_MINT_TYPEHASH =
         keccak256("PlayerMint(address to,bytes8 section,string metadata,string saciPath,uint256 id)");
 
     IERC20 private paymentToken;
@@ -33,8 +33,8 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable, IERC721Errors, IERC20Error
         addSection(LIST_SECTION_CARDS);
         addSection(LIST_SECTION_ITEMS);
     }
-
-    function _addItem(
+  
+     function _addItem(
         uint256 tokenId, 
         bytes8 section, 
         string memory metadata, 
@@ -89,8 +89,8 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable, IERC721Errors, IERC20Error
                 revert SectionDoesntExist(section);
             }
 
-            _addItem(id, section, metadata, saciPath, to);
             _mint(to, id, 1, "");
+            _addItem(id, section, metadata, saciPath, to);
     }
 
     function serverMint(        
@@ -144,15 +144,26 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable, IERC721Errors, IERC20Error
         emit PlayerNewTokenMined(id, to, metadata, saciPath);
     }
 
-    /*function burn(uint256 id) public {
+    function burn(uint256 id, string memory exchangeSaciPath) public {
         if(items[id].owner != msg.sender) {
             revert NotTokenOwner(id, items[id].owner);
         }
+         
+        if(items[id].section == LIST_SECTION_CARDS) {
+            revert GeneralError("Tokens from section \"cards\" can't be burned!");
+        }
+
+        string memory oldSaciPath = items[id].saciPath;
+        address oldOwner = items[id].owner;
 
         _burn(items[id].owner, id, 1);
 
-        emit PlayerTokenBurned(id, items[id].owner, items[id].metadata);
-    }*/
+        items[id].owner = address(0);
+        items[id].saciPath = "";
+        items[id].salePrice = 0;
+
+        emit PlayerTokenBurned(id, oldOwner, items[id].metadata, oldSaciPath, exchangeSaciPath);
+    }
 
     function addSection(bytes8 name) public onlyOwner {
         bool sectionFound;
@@ -187,6 +198,58 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable, IERC721Errors, IERC20Error
         setApprovalForAll(address(this), salePrice != 0);
     }
 
+    function safeTransferFrom(
+        address from, 
+        address to, 
+        uint256 id, 
+        uint256 value, 
+        bytes memory data
+        ) public override {
+            address sender = _msgSender();
+
+            if (from != sender && !isApprovedForAll(from, sender)) {
+                revert ERC1155MissingApprovalForAll(sender, from);
+            }
+
+            _safeTransferFrom(from, to, id, value, data);
+
+            address oldOwner = items[id].owner;
+            string memory oldSaciPath = items[id].saciPath;
+
+            items[id].owner = to;
+            items[id].saciPath = "";
+            items[id].salePrice = 0;
+
+            emit PlayerNewTokenChanges(id, oldOwner, to, items[id].metadata, oldSaciPath, "");
+    }
+
+    function safeBatchTransferFrom(
+        address from,
+        address to,
+        uint256[] memory ids,
+        uint256[] memory values,
+        bytes memory data
+    ) public override {
+            address sender = _msgSender();
+
+            if (from != sender && !isApprovedForAll(from, sender)) {
+                revert ERC1155MissingApprovalForAll(sender, from);
+            }
+
+            _safeBatchTransferFrom(from, to, ids, values, data);
+
+            for(uint i = 256; i < ids.length; i++) {
+                address oldOwner = items[ids[i]].owner;
+                string memory oldSaciPath = items[ids[i]].saciPath;
+
+                items[ids[i]].owner = to;
+                items[ids[i]].saciPath = "";
+                items[ids[i]].salePrice = 0;
+
+                emit PlayerNewTokenChanges(ids[i], oldOwner, to, items[ids[i]].metadata, oldSaciPath, "");
+            }
+    }
+
     function acceptOfferSale(
         uint256 tokenId, 
         uint256 expiration, 
@@ -214,7 +277,7 @@ contract ThirdHeroTokens is ERC1155, EIP712, Ownable, IERC721Errors, IERC20Error
                 s
             );
 
-            uint256 allowance = paymentToken.allowance(msg.sender, items[tokenId].owner);
+            uint256 allowance = paymentToken.allowance(msg.sender, address(this));
 
             if(allowance < salePrice) {
                 revert ERC20InsufficientAllowance(msg.sender, allowance, salePrice);
